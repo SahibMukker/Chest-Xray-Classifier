@@ -1,0 +1,62 @@
+1) Add a real LR schedule (highest ROI)
+Right now you peaked late (epoch 48), which screams “LR could’ve decayed better.”
+Best easy option: cosine decay + warmup
+Warmup 1–2 epochs, then cosine down to ~1e-6
+If you don’t wanna wire cosine, use:
+ReduceLROnPlateau on val_micro_f1 (you already do this in some runs) but make sure patience isn’t too big (like 2–3).
+Why it helps: pushes the model into a better minimum without needing 100 epochs.
+
+2) Better augmentations that still respect laterality
+You did rotation + brightness/contrast — good. Add one more that’s safe:
+Prefer:
+RandomResizedCrop(384, scale=(0.85, 1.0)) (small zoom/crop)
+(optional) RandomAffine with tiny translate (like 2–3%)
+Avoid: horizontal flip (you already did), aggressive crops.
+Example:
+
+train_tf = transforms.Compose([
+    transforms.RandomResizedCrop(384, scale=(0.85, 1.0)),
+    transforms.RandomRotation(5),
+    transforms.ColorJitter(brightness=0.1, contrast=0.1),
+    transforms.ToTensor(),
+    transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+])
+
+
+This usually boosts generalization more than just Resize.
+
+3) Try a stronger backbone (if you’re not already)
+If you’re on something light, moving to:
+DenseNet121/169 (classic for CXR)
+EfficientNet-B0/B2
+ConvNeXt-Tiny
+Often gives you a bigger jump than tweaking thresholds.
+
+4) Push resolution one more step (only if VRAM allows)
+Go from 384 → 512 and reduce batch size + use grad accumulation.
+Don’t jump to 512 unless:
+training is stable
+dataloader isn’t choking
+you can tolerate slower epochs
+
+5) Calibrate thresholds more honestly
+
+Per-class tuning on VAL didn’t transfer perfectly. Better:
+split off a small calibration set from train (not val)
+tune thresholds there
+keep val for early stopping
+This helps test F1 stop being “fragile.”
+
+6) Focus on mAP (your real bottleneck)
+Your macro mAP is still low-ish. Things that usually lift mAP:
+RandomResizedCrop
+better backbone
+LR schedule
+longer training with LR decay
+
+If you want the clean next experiment plan
+Run these in order (each one logged in runs.md):
+
+Add RandomResizedCrop (keep everything else same)
+Add cosine LR schedule (or tune ReduceLROnPlateau)
+If those help: try 512×512
